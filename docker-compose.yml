@@ -1,0 +1,128 @@
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    hostname: ${POSTGRES_HOST}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_HOME_IOT_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    networks:
+      - localnet
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_ADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_ADMIN_PASSWORD}
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - localnet
+
+  coordinator:
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    container_name: coordinator
+    hostname: coordinator
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_HOME_IOT_DB}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      LG_COUNTRY: ${LG_COUNTRY}
+      LG_API_KEY: ${LG_API_KEY}
+      LG_CLIENT_ID: ${LG_CLIENT_ID}
+      LG_API_TOKEN: ${LG_API_TOKEN}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE}
+    depends_on:
+      - pgadmin
+    networks:
+      - localnet
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    depends_on:
+      - coordinator
+    networks:
+      - localnet
+
+  etl_worker:
+    build:
+      context: .
+      dockerfile: etl/Dockerfile
+    hostname: etl_worker
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_HOME_IOT_DB}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      LG_COUNTRY: ${LG_COUNTRY}
+      LG_API_KEY: ${LG_API_KEY}
+      LG_CLIENT_ID: ${LG_CLIENT_ID}
+      LG_API_TOKEN: ${LG_API_TOKEN}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE}
+    depends_on:
+      - rabbitmq
+    networks:
+      - localnet
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    container_name: ui
+    hostname: ui
+    ports:
+      - "8080:8080"
+    depends_on:
+      - coordinator
+    networks:
+      - localnet
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase
+    hostname: metabase
+    ports:
+      - 3000:3000
+    environment:  
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: ${POSTGRES_DEFAULT_DB}
+      MB_DB_USER: ${POSTGRES_USER}
+      MB_DB_PASS: ${POSTGRES_PASSWORD}
+      MB_DB_HOST: ${POSTGRES_HOST}
+      MB_DB_PORT: 5432
+    networks:
+      - localnet
+    healthcheck:
+      test: curl --fail -I http://localhost:3000/api/health || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - ui
+
+networks:
+  localnet:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  pgadmin_data:
